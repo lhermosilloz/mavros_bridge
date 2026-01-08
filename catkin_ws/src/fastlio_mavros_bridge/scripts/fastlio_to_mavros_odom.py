@@ -1,44 +1,42 @@
 #!/usr/bin/env python
 import rospy
-import tf2_ros
-from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
+import copy
 
-def static_tfs(parent, child):
-    t = TransformStamped()
-    t.header.stamp = rospy.Time.now()
-    t.header.frame_id = parent
-    t.child_frame_id = child
-    t.transform.translation.x = 0.0
-    t.transform.translation.y = 0.0
-    t.transform.translation.z = 0.0
-    t.transform.rotation.x = 0.0
-    t.transform.rotation.y = 0.0
-    t.transform.rotation.z = 0.0
-    t.transform.rotation.w = 1.0
-
-    return t
+latest = None
 
 def cb(msg):
-    out = msg
+    global latest
+    latest = msg
+
+def timer_cb(_evt):
+    global latest
+    if latest is None:
+        return
+    out = copy.deepcopy(latest)
+
+    # Frames for MAVROS odometry plugin -> MAVLink ODOMETRY
     out.header.frame_id = "odom_ned"
     out.child_frame_id = "base_link_frd"
+
+    # IMPORTANT: Never send "perfect" covariances (0). Make them non-zero.
+    # If you don't have twist, at least make twist covariance large (so it doesn't get trusted).
+    # nav_msgs/Odometry: pose.covariance and twist.covariance are 6x6 flattened.
+    if all(v == 0.0 for v in out.twist.covariance):
+        out.twist.covariance = [1.0] * 36
+
     pub.publish(out)
 
 if __name__ == "__main__":
-    rospy.init_node("fastlio_to_mavros_odom")
+    rospy.init_node("fastlio_to_mavros_odom_repub")
 
     in_topic = rospy.get_param("~in_topic", "/Odometry")
     out_topic = rospy.get_param("~out_topic", "/mavros/odometry/out")
+    rate_hz = rospy.get_param("~rate_hz", 30.0)
 
     pub = rospy.Publisher(out_topic, Odometry, queue_size=10)
     rospy.Subscriber(in_topic, Odometry, cb, queue_size=10)
 
-    #br = tf2_ros.StaticTransformBroadcaster()
-    #br.sendTransform([
-    #    static_tfs("odom_ned", "camera_init"),
-    #    static_tfs("base_link_frd", "body")
-    #])
-
-    rospy.loginfo("Relaying %s -> %s", in_topic, out_topic)
+    rospy.Timer(rospy.Duration(1.0 / rate_hz), timer_cb)
+    rospy.loginfo("Republishing latest %s -> %s at %.1f Hz", in_topic, out_topic, rate_hz)
     rospy.spin()

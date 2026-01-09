@@ -16,8 +16,8 @@ def timer_cb(_evt):
     out = copy.deepcopy(latest)
 
     # Frames for MAVROS odometry plugin -> MAVLink ODOMETRY
-    out.header.frame_id = "odom_ned"
-    out.child_frame_id = "base_link_frd"
+    out.header.frame_id = "odom"
+    out.child_frame_id = "base_link"
 
     # IMPORTANT: Never send "perfect" covariances (0). Make them non-zero.
     # If you don't have twist, at least make twist covariance large (so it doesn't get trusted).

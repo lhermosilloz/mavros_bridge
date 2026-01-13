@@ -41,11 +41,12 @@ def timer_cb(_evt):
         t0_wall = rospy.Time.now()
         t0_mono = monotonic_sec()
 
-    out = copy.deepcopy(latest)
+    # Build PoseWithCovarianceStamped
+    out = PoseWithCovarianceStamped()
 
     # Frames for MAVROS odom plugin -> Mavlink odom
-    out.header.frame_id = "odom"
-    out.child_frame_id = "base_link"
+    out.header.frame_id = out.header.frame_id = rospy.get_param("~frame_id", "odom")
+    #out.child_frame_id = "base_link"
 
     # Monotonic-stable stamp (won't jump with NTP)
     dt = monotonic_sec() - t0_mono
@@ -53,18 +54,19 @@ def timer_cb(_evt):
     # Add the time stamp
     out.header.stamp = t0_wall + rospy.Duration.from_sec(dt)
 
-    if all(v == 0.0 for v in out.twist.covariance):
-        out.twist.covariance = [1.0] * 36
+    # Copy the pose and covariance from Odometry
+    out.pose.pose = latest.pose.pose
+    out.pose.covariance = list(latest.pose.covariance)
 
     # Force the pose covariance diagonals
-    # pc = list(out.pose.covariance)
-    # pc[0] = 0.01
-    # pc[7] = 0.01
-    # pc[14] = 0.0025
-    # pc[21] = 0.03
-    # pc[28] = 0.03
-    # pc[35] = 0.07
-    # out.pose.covariance = pc
+    pc = list(out.pose.covariance)
+    pc[0] = 0.01
+    pc[7] = 0.01
+    pc[14] = 0.0025
+    pc[21] = 0.03
+    pc[28] = 0.03
+    pc[35] = 0.07
+    out.pose.covariance = pc
 
     pub.publish(out)
 
@@ -72,10 +74,10 @@ if __name__ == "__main__":
     rospy.init_node("fastlio_to_mavros_odom_repub")
 
     in_topic = rospy.get_param("~in_topic", "/Odometry")
-    out_topic = rospy.get_param("~out_topic", "/mavros/odometry/out")
+    out_topic = rospy.get_param("~out_topic", "/mavros/vision_pose/pose_cov")
     rate_hz = rospy.get_param("~rate_hz", 30.0)
 
-    pub = rospy.Publisher(out_topic, Odometry, queue_size=10)
+    pub = rospy.Publisher(out_topic, PoseWithCovarianceStamped, queue_size=10)
     rospy.Subscriber(in_topic, Odometry, cb, queue_size=10)
 
     rospy.Timer(rospy.Duration(1.0 / rate_hz), timer_cb)

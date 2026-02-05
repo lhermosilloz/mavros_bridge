@@ -2,23 +2,23 @@
 import rospy
 from nav_msgs.msg import Odometry
 import copy
-
+import math
 import ctypes
 import ctypes.util
 
 # Monotonically increasing
 t0_wall = None
-t0_mono = None   
+t0_mono = None
 
 latest = None
 
 # Monotonic clock for Python 2
-_librt = ctypes.CDLL(ctypes.util.find_library('rt') or 'librt.so.1', use_errno=True)  
+_librt = ctypes.CDLL(ctypes.util.find_library('rt') or 'librt.so.1', use_errno=True)
 
 class timespec(ctypes.Structure):
-    _fields_ = [('tv_sec', ctypes.c_long), ('tv_nsec', ctypes.c_long)] 
+    _fields_ = [('tv_sec', ctypes.c_long), ('tv_nsec', ctypes.c_long)]
 
-CLOCK_MONOTONIC = 1    
+CLOCK_MONOTONIC = 1
 
 def monotonic_sec():
     t = timespec()
@@ -26,6 +26,26 @@ def monotonic_sec():
         errno = ctypes.get_errno()
         raise OSError(errno, "clock_gettime(CLOCK_MONOTONIC) failed")
     return t.tv_sec + t.tv_nsec * 1e-9
+
+def apply_roll(qx, qy, qz, qw):
+    """
+    Apply rotation about X axis
+    q_flip = (1, 0, 0, 0)
+    Post multiply: q_new = q xor q_flip = (w, z, -y, -x)
+    """
+    nx = qw
+    ny = qz
+    nz = -qy
+    nw = -qx
+
+    # Normalize (safe)
+    n = math.sqrt(nx*nx + ny*ny + nz*nz + nw*nw)
+    if n > 1e-12:
+        nx /= n
+        ny /= n
+        nz /= n
+        nw /= n
+    return nx, ny, nz, nw
 
 def cb(msg):
     global latest
@@ -52,6 +72,11 @@ def timer_cb(_evt):
 
     # Add the time stamp
     out.header.stamp = t0_wall + rospy.Duration.from_sec(dt)
+
+    q = out.pose.pose.orientation
+    qx, qy, qz, qw = q.x, q.y, q.z, q.w
+    nx, ny, nz, nw = apply_roll(qx, qy, qz, qw)
+    q.x, q.y, q.z, q.w = nx, ny, nz, nw
 
     if all(v == 0.0 for v in out.twist.covariance):
         out.twist.covariance = [1.0] * 36
